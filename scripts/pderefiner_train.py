@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 import os
-
+import torch
 from pytorch_lightning.cli import LightningCLI
 
 from pdearena import utils
@@ -39,6 +39,11 @@ def main():
         logger.warning("No default root dir set, using: ")
         cli.trainer.default_root_dir = os.environ.get("PDEARENA_OUTPUT_DIR", "./outputs")
         logger.warning(f"\t {cli.trainer.default_root_dir}")
+
+    # # hack to load the checkpoint
+    # checkpoint_file = os.path.abspath('saved_checkpoints/fixed_nu_epoch19.ckpt')
+    # checkpoint = torch.load(checkpoint_file)
+    # cli.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
     setupdir(cli.trainer.default_root_dir)
     logger.info(f"Checkpoints and logs will be saved in {cli.trainer.default_root_dir}")

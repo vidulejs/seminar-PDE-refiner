@@ -503,4 +503,16 @@ COND_MODEL_REGISTRY = {
             "use_scale_shift_norm": True,
         },
     },
+    "FNO-1D-128-8m": {
+        "class_path": "pdearena.modules.oned_resnet.ResNetFNO1D",
+        "init_args": {
+            "in_channels": 1,
+            "out_channels": 1,
+            "hidden_channels": 128,
+            "num_blocks": 4,
+            "modes": 8,
+            "activation": "gelu",
+            "norm": False,
+        },
+    }
 }

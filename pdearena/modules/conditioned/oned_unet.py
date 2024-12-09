@@ -625,7 +625,7 @@ class Unet(nn.Module):
             self.param_use_time = True
         else:
             assert not self.param_use_time, "Cannot pass time=None after using it in a previous forward pass"
-        if z is not None:
+        if z is not None and self.param_conditioning is not None:
             if self.param_conditioning.startswith("scalar"):
                 if z.ndim == 1:
                     z = z[:, None]
