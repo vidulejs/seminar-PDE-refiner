@@ -234,7 +234,6 @@ class PDEModel(LightningModule):
             else:
                 raise NotImplementedError(f"{self._mode}")
             # summing across "time axis"
-            print(loss_vec)
             if loss_vec["mse"] == 0:
                 return
             else:
