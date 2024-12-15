@@ -251,7 +251,6 @@ class PDEModel(LightningModule):
             }
 
     def validation_epoch_end(self, outputs: List[Any]):
-        print(outputs)
         if len(outputs) > 1:
             if len(outputs[0]) > 0:
                 for key in outputs[0][0].keys():
