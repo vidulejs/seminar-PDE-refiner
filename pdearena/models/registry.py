@@ -11,6 +11,8 @@ from pdearena.modules.twod_resnet import (
     FourierBasicBlock,
 )
 
+from pdearena.modules.oned_resnet import FourierBasicBlock1D
+
 MODEL_REGISTRY = {
     "FNO-128-8m": {
         "class_path": "pdearena.modules.twod_resnet.ResNet",
@@ -375,6 +377,26 @@ MODEL_REGISTRY = {
             "norm": True,
         },
     },
+    "FNO-1D-128-32m": {
+        "class_path": "pdearena.modules.oned_resnet.ResNet1D",
+        "init_args": {
+            "hidden_channels": 128,
+            "num_blocks": [1],
+            "modes": 32,
+            "block": utils.partialclass("FourierBasicBlock1D", FourierBasicBlock1D, modes=32),
+            "activation": "gelu",
+            "norm": False,
+        },
+    },
+    "Unetmod-1d-64": {
+        "class_path": "pdearena.modules.oned_unet.Unet",
+        "init_args": {
+            "hidden_channels": 64,
+            "norm": True,
+            "n_dims": 1,
+            "param_conditioning": None
+        }
+    }
 }
 
 COND_MODEL_REGISTRY = {
@@ -501,18 +523,6 @@ COND_MODEL_REGISTRY = {
             "norm": True,
             "n_fourier_layers": 2,
             "use_scale_shift_norm": True,
-        },
-    },
-    "FNO-1D-128-8m": {
-        "class_path": "pdearena.modules.oned_resnet.ResNetFNO1D",
-        "init_args": {
-            "in_channels": 1,
-            "out_channels": 1,
-            "hidden_channels": 128,
-            "num_blocks": 4,
-            "modes": 8,
-            "activation": "gelu",
-            "norm": False,
         },
     }
 }

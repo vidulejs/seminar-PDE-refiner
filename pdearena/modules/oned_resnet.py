@@ -39,8 +39,6 @@ class FourierBasicBlock1D(nn.Module):
         self.modes = modes
         self.fourier1 = SpectralConv1d(in_planes, planes, modes=self.modes)
         self.conv1 = nn.Conv1d(in_planes, planes, kernel_size=1, padding=0, bias=True)
-        self.fourier2 = SpectralConv1d(planes, planes, modes=self.modes)
-        self.conv2 = nn.Conv1d(planes, planes, kernel_size=1, padding=0, bias=True)
 
         self.activation = getattr(F, activation)
 
@@ -49,10 +47,6 @@ class FourierBasicBlock1D(nn.Module):
         x2 = self.conv1(x)
         out = self.activation(x1 + x2)
 
-        x1 = self.fourier2(out)
-        x2 = self.conv2(out)
-        out = x1 + x2
-        out = self.activation(out)
         return out
 
 class ResNet1D(nn.Module):
@@ -74,7 +68,9 @@ class ResNet1D(nn.Module):
     def __init__(
         self,
         n_input_scalar_components: int,
+        n_input_vector_components: int,
         n_output_scalar_components: int,
+        n_output_vector_components: int,
         block,
         num_blocks: list,
         time_history: int,

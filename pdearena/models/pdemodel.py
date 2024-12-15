@@ -8,7 +8,7 @@ from pytorch_lightning.cli import instantiate_class
 
 from pdearena import utils
 from pdearena.data.utils import PDEDataConfig
-from pdearena.modules.loss import CustomMSELoss, ScaledLpLoss
+from pdearena.modules.loss import CustomMSELoss, PearsonCorrelationScore, ScaledLpLoss
 from pdearena.rollout import rollout2d, rollout3d_maxwell
 
 from .registry import MODEL_REGISTRY
@@ -85,8 +85,9 @@ class PDEModel(LightningModule):
             assert self.pde.n_vector_components == 2
         elif (self.pde.n_spatial_dim) == 2:
             self._mode = "2D"
-        else:
-            raise NotImplementedError(f"{self.pde}")
+        elif (self.pde.n_spatial_dim) == 1:
+            self._mode = "1D"
+            #raise NotImplementedError(f"{self.pde}")
 
         self.model = get_model(self.hparams, self.pde)
         if criterion == "mse":
@@ -97,7 +98,8 @@ class PDEModel(LightningModule):
             raise NotImplementedError(f"Criterion {criterion} not implemented yet")
 
         self.val_criterions = {"mse": CustomMSELoss(), "scaledl2": ScaledLpLoss()}
-        self.rollout_criterion = torch.nn.MSELoss(reduction="none")
+        self.rollout_criterions = {"mse": torch.nn.MSELoss(reduction="none"), "corr": PearsonCorrelationScore()}
+        self.rollout_criterion = torch.nn.MSELoss(reduction="none") # used for maxwell3d
         time_resolution = self.pde.trajlen
         # Max number of previous points solver can eat
         reduced_time_resolution = time_resolution - self.hparams.time_history
@@ -110,13 +112,19 @@ class PDEModel(LightningModule):
         return self.model(*args)
 
     def train_step(self, batch):
-        x, y = batch
+        if len(batch) == 3:
+            x, y, cond = batch
+        else:
+            x, y = batch
         pred = self.model(x)
         loss = self.train_criterion(pred, y)
         return loss, pred, y
 
     def eval_step(self, batch):
-        x, y = batch
+        if len(batch) == 3:
+            x, y, cond = batch
+        else:
+            x, y = batch
         pred = self.model(x)
         loss = {k: vc(pred, y) for k, vc in self.val_criterions.items()}
         return loss, pred, y
@@ -124,7 +132,7 @@ class PDEModel(LightningModule):
     def training_step(self, batch, batch_idx: int):
         loss, preds, targets = self.train_step(batch)
 
-        if self._mode == "2D":
+        if self._mode == "2D" or self._mode == "1D":
             scalar_loss = self.train_criterion(
                 preds[:, :, 0 : self.pde.n_scalar_components, ...],
                 targets[:, :, 0 : self.pde.n_scalar_components, ...],
@@ -157,10 +165,10 @@ class PDEModel(LightningModule):
                 self.log(f"train/{key}_mean", mean)
                 self.log(f"train/{key}_std", std)
 
-    def compute_rolloutloss2D(self, batch: Any):
+    def compute_rolloutloss(self, batch: Any):
         (u, v, cond, grid) = batch
 
-        losses = []
+        losses = {k: [] for k in self.rollout_criterions.keys()}
         for start in range(
             0,
             self.max_start_time + 1,
@@ -175,6 +183,12 @@ class PDEModel(LightningModule):
                 init_v = v[:, start:end_time, ...]
             else:
                 init_v = None
+            targ_u = u[:, target_start_time:target_end_time, ...]
+            if self.pde.n_vector_components > 0:
+                targ_v = v[:, target_start_time:target_end_time, ...]
+                targ_traj = torch.cat((targ_u, targ_v), dim=2)
+            else:
+                targ_traj = targ_u
 
             pred_traj = rollout2d(
                 self.model,
@@ -185,56 +199,59 @@ class PDEModel(LightningModule):
                 self.hparams.time_history,
                 self.hparams.max_num_steps,
             )
-            targ_u = u[:, target_start_time:target_end_time, ...]
-            if self.pde.n_vector_components > 0:
-                targ_v = v[:, target_start_time:target_end_time, ...]
-                targ_traj = torch.cat((targ_u, targ_v), dim=2)
-            else:
-                targ_traj = targ_u
-            loss = self.rollout_criterion(pred_traj, targ_traj).mean(dim=(0, 2, 3, 4))
-            losses.append(loss)
-        loss_vec = torch.stack(losses, dim=0).mean(dim=0)
-        return loss_vec
+            for k, criterion in self.rollout_criterions.items():
+                loss = criterion(pred_traj, targ_traj)
+                loss = loss.mean(dim=(0,) + tuple(range(2, loss.ndim)))
+                losses[k].append(loss)
+        loss_vecs = {k: sum(v) / max(1, len(v)) for k, v in losses.items()}
+        return loss_vecs
 
     def validation_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0):
         if dataloader_idx == 0:
             # one-step loss
-            loss, preds, targets = self.eval_step(batch)
-            if self._mode == "2D":
-                loss["scalar_mse"] = self.val_criterions["mse"](
+            loss_mse, preds, targets = self.eval_step(batch)
+            if self._mode == "2D" or self._mode == "1D":
+                loss_mse["scalar_mse"] = self.val_criterions["mse"](
                     preds[:, :, 0 : self.pde.n_scalar_components, ...],
                     targets[:, :, 0 : self.pde.n_scalar_components, ...],
                 )
-                loss["vector_mse"] = self.val_criterions["mse"](
+                loss_mse["vector_mse"] = self.val_criterions["mse"](
                     preds[:, :, self.pde.n_scalar_components :, ...],
                     targets[:, :, self.pde.n_scalar_components :, ...],
                 )
 
-                for k in loss.keys():
-                    self.log(f"valid/loss/{k}", loss[k])
-                return {f"{k}_loss": v for k, v in loss.items()}
+                for k in loss_mse.keys():
+                    self.log(f"valid/loss/{k}", loss_mse[k])
+                return {f"{k}_loss": v for k, v in loss_mse.items()}
 
             else:
                 raise NotImplementedError(f"{self._mode}")
 
         elif dataloader_idx == 1:
             # rollout loss
-            if self._mode == "2D":
-                loss_vec = self.compute_rolloutloss2D(batch)
+            if self._mode == "2D" or self._mode == "1D":
+                loss_vec = self.compute_rolloutloss(batch)
             else:
                 raise NotImplementedError(f"{self._mode}")
             # summing across "time axis"
-            loss = loss_vec.sum()
-            loss_t = loss_vec.cumsum(0)
-            chan_avg_loss = loss / (self.pde.n_scalar_components + self.pde.n_vector_components)
-            self.log("valid/unrolled_loss", loss)
+            print(loss_vec)
+            if loss_vec["mse"] == 0:
+                return
+            else:
+                loss_mse = loss_vec["mse"].sum()
+                loss_mse_t = loss_vec["mse"].cumsum(0)
+
+            chan_avg_loss = loss_mse / (self.pde.n_scalar_components + self.pde.n_vector_components)
+            self.log("valid/unrolled_loss", loss_mse)
             return {
-                "unrolled_loss": loss,
-                "loss_timesteps": loss_t,
+                "unrolled_loss": loss_mse,
+                "loss_timesteps": loss_mse_t,
                 "unrolled_chan_avg_loss": chan_avg_loss,
+                "corr": loss_vec["corr"]
             }
 
     def validation_epoch_end(self, outputs: List[Any]):
+        print(outputs)
         if len(outputs) > 1:
             if len(outputs[0]) > 0:
                 for key in outputs[0][0].keys():
@@ -276,7 +293,7 @@ class PDEModel(LightningModule):
 
         elif dataloader_idx == 1:
             if self._mode == "2D":
-                loss_vec = self.compute_rolloutloss2D(batch)
+                loss_vec = self.compute_rolloutloss(batch)
             else:
                 raise NotImplementedError(f"{self._mode}")
             # summing across "time axis"

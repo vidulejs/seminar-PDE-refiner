@@ -34,7 +34,6 @@ trainer:
         filename: "epoch_{epoch:03d}"
         auto_insert_metric_name: False
 
-
   num_nodes: 1
   enable_progress_bar: true
   overfit_batches: 0.0
@@ -49,26 +48,19 @@ trainer:
   precision: 32
   enable_model_summary: true
 
-  num_sanity_val_steps: 0
+  num_sanity_val_steps: 2
   reload_dataloaders_every_n_epochs: 0
   detect_anomaly: false
 
 model:
-  name: "Unetmod-1d-64"
+  name: "FNO-1D-128-32m"
   max_num_steps: 1000
   activation: "gelu"
   criterion: mse
   lr: 1e-4
-  param_conditioning: null
-  padding_mode: "circular"
-  predict_difference: True
-  difference_weight: 0.3
-  min_noise_std: 4e-7
-  num_refinement_steps: 3
   time_history: 1
   time_future: 1
   time_gap: 0
-
 
 data:
   task: KuramotoSivashinsky1D
@@ -80,9 +72,6 @@ data:
       n_vector_components: 0
       trajlen: 140
       n_spatial_dim: 1
-  time_history: 1
-  time_future: 1
-  time_gap: 0
 
   batch_size: 128
   pin_memory: True
